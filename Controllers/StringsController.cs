@@ -16,11 +16,14 @@ namespace StringAnalyzerService.Controllers
             _service = service;
         }
 
-        // 1️⃣ POST /strings
+        // ✅ 1️⃣ POST /strings
         [HttpPost]
         public IActionResult CreateString([FromBody] StringRequestModel request)
         {
-            if (request == null || request.Value == null)
+            if (request == null)
+                return BadRequest(new { message = "Invalid request body" });
+
+            if (request.Value == null)
                 return BadRequest(new { message = "Missing 'value' field" });
 
             if (request.Value is not string)
@@ -32,19 +35,19 @@ namespace StringAnalyzerService.Controllers
             try
             {
                 var record = _service.AnalyzeString(request.Value);
-                return CreatedAtAction(nameof(GetString), new { string_value = request.Value }, record);
+                return Created($"/strings/{request.Value}", record);
             }
             catch (InvalidOperationException)
             {
-                return Conflict(new { message = "String already exists" });
+                return Conflict(new { message = "String already exists in the system" });
             }
-            catch (ArgumentException ex)
+            catch (Exception ex)
             {
                 return BadRequest(new { message = ex.Message });
             }
         }
 
-        // 2️⃣ GET /strings/{string_value}
+        // ✅ 2️⃣ GET /strings/{string_value}
         [HttpGet("{string_value}")]
         public IActionResult GetString(string string_value)
         {
@@ -55,18 +58,7 @@ namespace StringAnalyzerService.Controllers
             return Ok(record);
         }
 
-        // 3️⃣ DELETE /strings/{string_value}
-        [HttpDelete("{string_value}")]
-        public IActionResult DeleteString(string string_value)
-        {
-            bool deleted = _service.DeleteString(string_value);
-            if (!deleted)
-                return NotFound(new { message = "String does not exist in the system" });
-
-            return NoContent();
-        }
-
-        // 4️⃣ GET /strings (with filters)
+        // ✅ 3️⃣ GET /strings (filters)
         [HttpGet]
         public IActionResult GetAllStrings(
             [FromQuery] bool? is_palindrome,
@@ -75,42 +67,21 @@ namespace StringAnalyzerService.Controllers
             [FromQuery] int? word_count,
             [FromQuery] string contains_character)
         {
-            // --- Validation ---
             if (!string.IsNullOrEmpty(contains_character) && contains_character.Length != 1)
-                return BadRequest(new { message = "Invalid query parameter values or types" });
+                return BadRequest(new { message = "contains_character must be a single character" });
 
-            if (min_length.HasValue && min_length < 0)
-                return BadRequest(new { message = "'min_length' must be non-negative" });
-
-            if (max_length.HasValue && max_length < 0)
-                return BadRequest(new { message = "'max_length' must be non-negative" });
-
-            if (min_length.HasValue && max_length.HasValue && min_length > max_length)
-                return BadRequest(new { message = "'min_length' cannot be greater than 'max_length'" });
-
-            if (word_count.HasValue && word_count < 0)
-                return BadRequest(new { message = "'word_count' must be non-negative" });
-
-            // --- Filter data ---
             var results = _service.GetAll();
 
             if (is_palindrome.HasValue)
                 results = results.Where(r => r.Properties.IsPalindrome == is_palindrome.Value);
-
             if (min_length.HasValue)
                 results = results.Where(r => r.Properties.Length >= min_length.Value);
-
             if (max_length.HasValue)
                 results = results.Where(r => r.Properties.Length <= max_length.Value);
-
             if (word_count.HasValue)
                 results = results.Where(r => r.Properties.WordCount == word_count.Value);
-
             if (!string.IsNullOrEmpty(contains_character))
-            {
-                char c = contains_character[0];
-                results = results.Where(r => r.Value.IndexOf(c, StringComparison.OrdinalIgnoreCase) >= 0);
-            }
+                results = results.Where(r => r.Value.Contains(contains_character, StringComparison.OrdinalIgnoreCase));
 
             var list = results.ToList();
 
@@ -129,7 +100,7 @@ namespace StringAnalyzerService.Controllers
             });
         }
 
-        // 5️⃣ GET /strings/filter-by-natural-language?query=...
+        // ✅ 4️⃣ GET /strings/filter-by-natural-language
         [HttpGet("filter-by-natural-language")]
         public IActionResult FilterByNaturalLanguage([FromQuery] string query)
         {
@@ -138,55 +109,35 @@ namespace StringAnalyzerService.Controllers
 
             var parsed = new Dictionary<string, object>();
 
-            // --- Simple heuristic parsing ---
             if (Regex.IsMatch(query, @"\bsingle\s+word\b", RegexOptions.IgnoreCase))
                 parsed["word_count"] = 1;
-
             if (Regex.IsMatch(query, @"palindrom", RegexOptions.IgnoreCase))
                 parsed["is_palindrome"] = true;
-
             var longerMatch = Regex.Match(query, @"longer\s+than\s+(\d+)", RegexOptions.IgnoreCase);
-            if (longerMatch.Success && int.TryParse(longerMatch.Groups[1].Value, out var longerN))
-                parsed["min_length"] = longerN + 1;
+            if (longerMatch.Success)
+                parsed["min_length"] = int.Parse(longerMatch.Groups[1].Value) + 1;
+            var containsMatch = Regex.Match(query, @"containing\s+(?:the\s+letter\s+)?([a-zA-Z])", RegexOptions.IgnoreCase);
+            if (containsMatch.Success)
+                parsed["contains_character"] = containsMatch.Groups[1].Value.ToLower();
 
-            var containsLetterMatch = Regex.Match(query, @"(?:containing|contains|contain)\s+(?:the\s+letter\s+)?([a-zA-Z])\b", RegexOptions.IgnoreCase);
-            if (containsLetterMatch.Success)
-                parsed["contains_character"] = containsLetterMatch.Groups[1].Value.ToLower();
-
-            if (Regex.IsMatch(query, @"first\s+vowel", RegexOptions.IgnoreCase) && !parsed.ContainsKey("contains_character"))
+            if (Regex.IsMatch(query, @"first\s+vowel", RegexOptions.IgnoreCase))
                 parsed["contains_character"] = "a";
 
-            if (parsed.Count == 0)
+            if (!parsed.Any())
                 return BadRequest(new { message = "Unable to parse natural language query" });
-
-            // --- Conflict validation ---
-            if (parsed.ContainsKey("min_length") && parsed.ContainsKey("max_length"))
-            {
-                if (Convert.ToInt32(parsed["min_length"]) > Convert.ToInt32(parsed["max_length"]))
-                    return UnprocessableEntity(new { message = "Query parsed but resulted in conflicting filters" });
-            }
-
-            // --- Apply filters ---
-            bool? isPalindrome = parsed.ContainsKey("is_palindrome") ? (bool?)Convert.ToBoolean(parsed["is_palindrome"]) : null;
-            int? minLength = parsed.ContainsKey("min_length") ? (int?)Convert.ToInt32(parsed["min_length"]) : null;
-            int? wordCount = parsed.ContainsKey("word_count") ? (int?)Convert.ToInt32(parsed["word_count"]) : null;
-            string containsChar = parsed.ContainsKey("contains_character") ? parsed["contains_character"].ToString() : null;
 
             var results = _service.GetAll();
 
-            if (isPalindrome.HasValue)
-                results = results.Where(r => r.Properties.IsPalindrome == isPalindrome.Value);
-
-            if (minLength.HasValue)
-                results = results.Where(r => r.Properties.Length >= minLength.Value);
-
-            if (wordCount.HasValue)
-                results = results.Where(r => r.Properties.WordCount == wordCount.Value);
-
-            if (!string.IsNullOrEmpty(containsChar))
+            if (parsed.ContainsKey("is_palindrome"))
+                results = results.Where(r => r.Properties.IsPalindrome);
+            if (parsed.ContainsKey("min_length"))
+                results = results.Where(r => r.Properties.Length >= Convert.ToInt32(parsed["min_length"]));
+            if (parsed.ContainsKey("word_count"))
+                results = results.Where(r => r.Properties.WordCount == Convert.ToInt32(parsed["word_count"]));
+            if (parsed.ContainsKey("contains_character"))
             {
-                char c = containsChar[0];
-                results = results.Where(r => r.Value.IndexOf(c, StringComparison.OrdinalIgnoreCase) >= 0);
+                string c = parsed["contains_character"].ToString();
+                results = results.Where(r => r.Value.Contains(c, StringComparison.OrdinalIgnoreCase));
             }
 
             var list = results.ToList();
@@ -201,6 +152,17 @@ namespace StringAnalyzerService.Controllers
                     parsed_filters = parsed
                 }
             });
+        }
+
+        // ✅ 5️⃣ DELETE /strings/{string_value}
+        [HttpDelete("{string_value}")]
+        public IActionResult DeleteString(string string_value)
+        {
+            bool deleted = _service.DeleteString(string_value);
+            if (!deleted)
+                return NotFound(new { message = "String does not exist in the system" });
+
+            return NoContent();
         }
     }
 }
