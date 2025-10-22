@@ -13,7 +13,7 @@ FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 COPY ["StringAnalyzerService.csproj", "."]
-RUN dotnet restore "./StringAnalyzerService.csproj"
+RUN dotnet restore "./StringAnalyzerService.csproj.csproj"
 COPY . .
 WORKDIR "/src/."
 RUN dotnet build "./StringAnalyzerService.csproj" -c $BUILD_CONFIGURATION -o /app/build
