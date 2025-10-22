@@ -1,0 +1,6 @@
+@StringAnalyzerService_HostAddress = http://localhost:5036
+
+GET {{StringAnalyzerService_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
