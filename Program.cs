@@ -2,22 +2,20 @@
 
 var builder = WebApplication.CreateBuilder(args);
 
-//  Configure Services (Dependency Injection)
+// Configure Services
 builder.Services.AddSingleton<StringAnalyzerService.Services.StringAnalyzerService>();
 
-// Add Controllers
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
-        // Optional: Keep JSON camelCase (like HNG spec)
         options.JsonSerializerOptions.PropertyNamingPolicy = null;
     });
 
-// Add Swagger/OpenAPI
+// Swagger/OpenAPI
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Enable CORS (important for hosted APIs)
+// Enable CORS (for testing & deployment)
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
@@ -30,21 +28,37 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-//  Configure HTTP Pipeline
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+// ✅ Always enable Swagger (even in production)
+app.UseSwagger();
+app.UseSwaggerUI();
 
-// Optional: Force redirect from HTTP → HTTPS
+// ✅ Add a friendly root endpoint (so / doesn’t show 404)
+app.MapGet("/", () => Results.Ok(new
+{
+    message = "Welcome to the String Analyzer Service API 🚀",
+    documentation = "/swagger",
+    example_endpoints = new[]
+    {
+        "POST /strings",
+        "GET /strings/{string_value}",
+        "GET /strings (with filters)",
+        "DELETE /strings/{string_value}",
+        "GET /strings/filter-by-natural-language"
+    }
+}));
+
+// Redirect HTTP → HTTPS (optional)
 app.UseHttpsRedirection();
 
-// Use the CORS policy
+// CORS policy
 app.UseCors("AllowAll");
 
-// Map your controllers
+// Map controllers
 app.MapControllers();
+
+// ✅ Use dynamic port for Railway
+var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
+app.Urls.Add($"http://*:{port}");
 
 // Run the app
 app.Run();
