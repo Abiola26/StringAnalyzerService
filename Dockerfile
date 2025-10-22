@@ -13,7 +13,7 @@ FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 COPY ["StringAnalyzerService.csproj", "."]
-RUN dotnet restore "./StringAnalyzerService.csproj.csproj"
+RUN dotnet restore "./StringAnalyzerService.csproj"
 COPY . .
 WORKDIR "/src/."
 RUN dotnet build "./StringAnalyzerService.csproj" -c $BUILD_CONFIGURATION -o /app/build
@@ -28,3 +28,5 @@ FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
 ENTRYPOINT ["dotnet", "StringAnalyzerService.dll"]
+
+
