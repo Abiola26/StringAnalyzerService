@@ -20,10 +20,6 @@ namespace StringAnalyzerService.Controllers
         // ✅ 1️⃣ POST /strings
         [HttpPost]
         [Consumes("application/json")]
-        [ProducesResponseType(typeof(StringRecord), StatusCodes.Status201Created)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status409Conflict)]
-        [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
         public IActionResult CreateString([FromBody] StringRequestModel request)
         {
             if (request == null)
