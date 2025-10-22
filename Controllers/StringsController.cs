@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using StringAnalyzerService.Entity;
 using StringAnalyzerService.Models.Requests;
 using StringAnalyzerService.Services;
-using System.Text;
 using System.Text.RegularExpressions;
 
 namespace StringAnalyzerService.Controllers
@@ -17,90 +17,47 @@ namespace StringAnalyzerService.Controllers
             _service = service;
         }
 
-        // inside StringsController
+        // ✅ 1️⃣ POST /strings
         [HttpPost]
-        public async Task<IActionResult> CreateString()
+        [Consumes("application/json")]
+        [ProducesResponseType(typeof(StringRecord), StatusCodes.Status201Created)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+        public IActionResult CreateString([FromBody] StringRequestModel request)
         {
-            // Try binding the usual way first
-            StringRequestModel? requestModel = null;
-            try
-            {
-                // If model binding worked, MVC will populate Request.Body already;
-                // we still try to read it safely if not.
-                requestModel = await HttpContext.Request.ReadFromJsonAsync<StringRequestModel>();
-            }
-            catch
-            {
-                // ignore parse errors - we'll attempt fallback below
-            }
-
-            // Fallback: if requestModel is null attempt to parse raw body manually
-            if (requestModel == null)
-            {
-                Request.EnableBuffering();
-                using var sr = new StreamReader(Request.Body, Encoding.UTF8, leaveOpen: true);
-                var bodyText = await sr.ReadToEndAsync();
-                Request.Body.Position = 0;
-
-                if (string.IsNullOrWhiteSpace(bodyText))
-                    return BadRequest(new { message = "Missing 'value' field" });
-
-                try
-                {
-                    // parse as JSON and look for "value"
-                    var doc = System.Text.Json.JsonDocument.Parse(bodyText);
-                    if (!doc.RootElement.TryGetProperty("value", out var valElem))
-                        return BadRequest(new { message = "Missing 'value' field" });
-
-                    if (valElem.ValueKind != System.Text.Json.JsonValueKind.String)
-                        return UnprocessableEntity(new { message = "'value' must be a string" });
-
-                    requestModel = new StringRequestModel { Value = valElem.GetString()! };
-                }
-                catch (System.Text.Json.JsonException)
-                {
-                    return BadRequest(new { message = "Invalid request body" });
-                }
-            }
-
-            // Now validate
-            if (requestModel == null)
+            if (request == null)
                 return BadRequest(new { message = "Invalid request body" });
 
-            if (requestModel.Value == null)
+            if (!Request.ContentType.Contains("application/json"))
+                return BadRequest(new { message = "Content-Type must be application/json" });
+
+            // Missing field
+            if (request.Value == null)
                 return BadRequest(new { message = "Missing 'value' field" });
 
-            // ensure the JSON type was string (defensive)
-            // (If MVC binding gave us a string property already, this check is passed)
-            if (requestModel.Value is not string)
+            // Invalid type check (non-string)
+            if (request.Value is not string)
                 return UnprocessableEntity(new { message = "'value' must be a string" });
 
-            if (string.IsNullOrWhiteSpace(requestModel.Value))
+            // Empty string
+            if (string.IsNullOrWhiteSpace(request.Value))
                 return BadRequest(new { message = "'value' cannot be empty" });
 
             try
             {
-                var record = _service.AnalyzeString(requestModel.Value);
-
-                // Return 201 Created with location header pointing to GET route
-                var location = $"/strings/{Uri.EscapeDataString(requestModel.Value)}";
-                return Created(location, record);
+                var record = _service.AnalyzeString(request.Value);
+                return Created($"/strings/{Uri.EscapeDataString(request.Value)}", record);
             }
-            catch (InvalidOperationException) // duplicate
+            catch (InvalidOperationException)
             {
-                return Conflict(new { message = "String already exists" });
+                return Conflict(new { message = "String already exists in the system" });
             }
             catch (ArgumentException ex)
             {
                 return BadRequest(new { message = ex.Message });
             }
-            catch (Exception)
-            {
-                // Generic fallback
-                return BadRequest(new { message = "Invalid request body" });
-            }
         }
-
 
         // ✅ 2️⃣ GET /strings/{string_value}
         [HttpGet("{string_value}")]
@@ -174,7 +131,6 @@ namespace StringAnalyzerService.Controllers
             var containsMatch = Regex.Match(query, @"containing\s+(?:the\s+letter\s+)?([a-zA-Z])", RegexOptions.IgnoreCase);
             if (containsMatch.Success)
                 parsed["contains_character"] = containsMatch.Groups[1].Value.ToLower();
-
             if (Regex.IsMatch(query, @"first\s+vowel", RegexOptions.IgnoreCase))
                 parsed["contains_character"] = "a";
 
